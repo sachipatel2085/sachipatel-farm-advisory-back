@@ -6,10 +6,10 @@ import {
   updateCrop,
   deleteCrop,
   getCropById,
-  harvestCrop,
   addTransaction,
   updateTransaction,
   deleteTransaction,
+  addHarvestBatch,
 } from "../controllers/cropController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -17,7 +17,7 @@ import { protect } from "../middleware/authMiddleware.js";
 const router = express.Router();
 
 router.post("/", protect, createCrop);
-router.post("/:id/harvest", protect, harvestCrop);
+router.post("/:id/harvest-batch", protect, addHarvestBatch);
 router.post("/:id/transaction", protect, addTransaction);
 
 router.get("/", protect, getAllUserCrops);

@@ -34,7 +34,10 @@ const cropSchema = new mongoose.Schema(
 
     expectedYield: Number,
 
-    actualYield: Number,
+    actualYield: {
+      type: Number,
+      default: 0, // total of all batches
+    },
 
     status: {
       type: String,
@@ -73,6 +76,15 @@ const cropSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    harvests: [
+      {
+        quantity: Number, // kg harvested in this batch
+        price: Number, // ₹ per kg
+        amount: Number, // total = qty * price
+        date: { type: Date, default: Date.now },
+        note: String,
+      },
+    ],
   },
   { timestamps: true },
 );

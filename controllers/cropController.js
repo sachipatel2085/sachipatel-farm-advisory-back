@@ -190,9 +190,9 @@ export const getCropById = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-export const harvestCrop = async (req, res) => {
+export const addHarvestBatch = async (req, res) => {
   try {
-    const { actualYield } = req.body;
+    const { quantity, price, note } = req.body;
 
     const crop = await Crop.findById(req.params.id);
     if (!crop) return res.status(404).json({ message: "Crop not found" });
@@ -202,14 +202,35 @@ export const harvestCrop = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    crop.actualYield = actualYield;
-    crop.status = "harvested";
+    const amount = Number(quantity) * Number(price);
+
+    // ✅ add harvest batch
+    crop.harvests.push({
+      quantity,
+      price,
+      amount,
+      note,
+    });
+
+    // ✅ update total yield
+    crop.actualYield = (crop.actualYield || 0) + Number(quantity);
+
+    // ✅ auto income transaction
+    crop.transactions.push({
+      title: "Harvest Sale",
+      quantity,
+      price,
+      amount,
+      type: "income",
+      category: "harvest",
+    });
+
     await crop.save();
 
     await pushHistory(
       crop._id,
-      "Harvest completed",
-      `Yield collected: ${actualYield} kg`,
+      "Harvest batch 🌾",
+      `Collected ${quantity} kg, sold at ₹${price}/kg → ₹${amount}`,
     );
 
     res.json(crop);
@@ -217,7 +238,6 @@ export const harvestCrop = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 export const addTransaction = async (req, res) => {
   try {
     const { title, quantity, price, amount, type, category, note, date } =
