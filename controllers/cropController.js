@@ -227,11 +227,13 @@ export const addHarvestBatch = async (req, res) => {
 
     await crop.save();
 
-    await pushHistory(
-      crop._id,
-      "Harvest batch ",
-      `Collected ${quantity} kg, sold at ₹${price}/kg → ₹${amount}`,
-    );
+    await CropHistory.create({
+      crop: crop._id,
+      title: "Harvest 🌾",
+      note: `${quantity} kg @ ₹${price}`,
+      type: "harvest",
+      amount,
+    });
 
     res.json(crop);
   } catch (err) {

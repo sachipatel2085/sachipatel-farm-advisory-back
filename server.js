@@ -13,6 +13,7 @@ import decisionRoutes from "./routes/decisionRoutes.js";
 import advisoryRoutes from "./routes/advisoryRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import resolveRoute from "./routes/resolve.js";
+import cropHistoryRoutes from "./routes/cropHistoryRoutes.js";
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ app.use("/api/fields", fieldRoutes);
 app.use("/api/crops", cropRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/profit", profitRoutes);
+app.use("/api/crop-history", cropHistoryRoutes);
 app.use("/api/decision", decisionRoutes);
 app.use("/api/advisory", advisoryRoutes);
 app.use("/api/dashboard", dashboardRoutes);
