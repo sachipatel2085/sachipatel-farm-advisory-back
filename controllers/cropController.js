@@ -1,5 +1,6 @@
 import Crop from "../models/Crop.js";
 import Farm from "../models/Farm.js";
+import Credit from "../models/Credit.js"; // 🔥 import
 
 /* ===== Helpers ===== */
 
@@ -240,9 +241,10 @@ export const addHarvestBatch = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 export const addTransaction = async (req, res) => {
   try {
-    const { title, quantity, price, amount, type, category, note, date } =
+    const { title, quantity, price, amount, type, category, note, date, shop } =
       req.body;
 
     const crop = await Crop.findById(req.params.id);
@@ -252,6 +254,20 @@ export const addTransaction = async (req, res) => {
     if (farm.user.toString() !== req.user._id.toString())
       return res.status(403).json({ message: "Unauthorized" });
 
+    // 🔥 CREATE CREDIT IF EXPENSE + SHOP
+    let credit = null;
+
+    if (type === "expense" && shop) {
+      credit = await Credit.create({
+        user: req.user._id,
+        shop,
+        crop: crop._id,
+        amount,
+        item: title,
+      });
+    }
+
+    // ✅ PUSH TRANSACTION
     crop.transactions.push({
       title,
       quantity,
@@ -261,94 +277,115 @@ export const addTransaction = async (req, res) => {
       category,
       note,
       date,
+      shop,
+      creditId: credit?._id || null,
     });
-
-    // ✅ AUTO UPDATE ACTUAL YIELD
-    if (type === "income") {
-      crop.actualYield = (crop.actualYield || 0) + Number(quantity || 0);
-    }
 
     await crop.save();
 
+    // 🔥 LINK BACK (VERY IMPORTANT)
+    if (credit) {
+      const txn = crop.transactions[crop.transactions.length - 1];
+
+      credit.transactionId = txn._id;
+      await credit.save();
+    }
     res.json(crop.transactions);
   } catch (err) {
-    console.error("ADD TXN ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
-
 // ✏️ Edit transaction
 export const updateTransaction = async (req, res) => {
   try {
     const { txnId } = req.params;
 
     const crop = await Crop.findById(req.params.id);
-    if (!crop) return res.status(404).json({ message: "Crop not found" });
-
-    const farm = await Farm.findById(crop.farm);
-    if (farm.user.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: "Unauthorized" });
-
-    const txn = crop.transactions.find((t) => t._id.toString() === txnId);
+    const txn = crop.transactions.id(txnId);
 
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
 
-    const { title, quantity, price, amount, category, note, date } = req.body;
+    const oldShop = txn.shop?.toString();
+    const newShop = req.body.shop;
+    const newAmount = Number(req.body.amount);
 
-    const oldQty = txn.quantity || 0;
-    const newQty = Number(quantity || 0);
+    // 🔥 HANDLE CREDIT SYNC
+    if (txn.creditId) {
+      const credit = await Credit.findById(txn.creditId);
 
-    txn.title = title;
-    txn.quantity = quantity;
-    txn.price = price;
-    txn.amount = amount;
-    txn.category = category;
-    txn.note = note;
-    txn.date = date;
+      // ❌ shop removed
+      if (!newShop) {
+        await Credit.findByIdAndDelete(txn.creditId);
+        txn.creditId = null;
+        txn.shop = null;
+      }
 
-    if (txn.type === "income") {
-      crop.actualYield = (crop.actualYield || 0) - oldQty + newQty;
+      // 🔁 shop changed
+      else if (oldShop !== newShop) {
+        credit.shop = newShop;
+        credit.amount = newAmount;
+        await credit.save();
+
+        txn.shop = newShop;
+      }
+
+      // ✏️ amount change
+      else {
+        credit.amount = newAmount;
+        await credit.save();
+      }
     }
+
+    // 🔥 new shop added
+    else if (newShop && txn.type === "expense") {
+      const credit = await Credit.create({
+        user: req.user._id,
+        shop: newShop,
+        crop: crop._id,
+        amount: newAmount,
+        item: req.body.title,
+      });
+
+      txn.creditId = credit._id;
+      txn.shop = newShop;
+    }
+
+    // update txn
+    Object.assign(txn, req.body);
 
     await crop.save();
 
     res.json(txn);
   } catch (err) {
-    console.error("UPDATE TXN ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
-
 // 🗑 Delete transaction
 export const deleteTransaction = async (req, res) => {
   try {
     const { txnId } = req.params;
 
     const crop = await Crop.findById(req.params.id);
-    if (!crop) return res.status(404).json({ message: "Crop not found" });
-
-    const farm = await Farm.findById(crop.farm);
-    if (farm.user.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: "Unauthorized" });
-
-    const txn = crop.transactions.find((t) => t._id.toString() === txnId);
+    const txn = crop.transactions.id(txnId);
 
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
 
-    // ✅ ADJUST ACTUAL YIELD IF INCOME
-    if (txn.type === "income") {
-      crop.actualYield = (crop.actualYield || 0) - Number(txn.quantity || 0);
+    // 🔥 delete linked credit
+    if (txn.creditId) {
+      await Credit.findByIdAndDelete(txn.creditId);
     }
 
-    crop.transactions = crop.transactions.filter(
-      (t) => t._id.toString() !== txnId,
-    );
+    // yield fix
+    if (txn.type === "income") {
+      crop.actualYield -= Number(txn.quantity || 0);
+    }
+
+    txn.remove();
 
     await crop.save();
 
     res.json({ message: "Transaction deleted" });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: err.message });
   }
 };

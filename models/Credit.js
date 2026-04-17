@@ -8,6 +8,9 @@ const creditSchema = new mongoose.Schema(
 
     item: String,
     amount: Number,
+    transactionId: {
+      type: mongoose.Schema.Types.ObjectId,
+    },
     date: { type: Date, default: Date.now },
   },
   { timestamps: true },

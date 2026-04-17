@@ -139,7 +139,9 @@ export const getShopLedger = async (req, res) => {
 
     credits.forEach((c) => {
       ledger.push({
+        _id: c._id,
         type: "debit",
+        model: "credit",
         amount: c.amount,
         date: c.date,
         note: c.item || "Purchase",
@@ -148,13 +150,14 @@ export const getShopLedger = async (req, res) => {
 
     payments.forEach((p) => {
       ledger.push({
+        _id: p._id,
         type: "credit",
+        model: "payment",
         amount: p.amount,
         date: p.date,
         note: "Payment",
       });
     });
-
     // sort
     ledger.sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -192,6 +195,74 @@ export const getShopLedger = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const deleteCredit = async (req, res) => {
+  try {
+    const credit = await Credit.findById(req.params.id);
+
+    if (credit?.transactionId) {
+      const crop = await Crop.findById(credit.crop);
+
+      crop.transactions = crop.transactions.filter(
+        (t) => t._id.toString() !== credit.transactionId.toString(),
+      );
+
+      await crop.save();
+    }
+
+    await Credit.findByIdAndDelete(req.params.id);
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const deletePayment = async (req, res) => {
+  await Payment.findByIdAndDelete(req.params.id);
+  res.json({ message: "Deleted" });
+};
+
+export const updateCredit = async (req, res) => {
+  try {
+    const credit = await Credit.findById(req.params.id);
+    if (!credit) return res.status(404).json({ message: "Not found" });
+
+    credit.amount = Number(req.body.amount);
+    await credit.save();
+
+    // 🔥 UPDATE CROP TRANSACTION
+    if (credit.transactionId) {
+      const crop = await Crop.findById(credit.crop);
+
+      const txn = crop.transactions.id(credit.transactionId);
+      if (txn) {
+        txn.amount = credit.amount;
+        await crop.save();
+      }
+    }
+
+    res.json(credit);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const updatePayment = async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    payment.amount = Number(amount);
+    await payment.save();
+
+    res.json(payment);
+  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
