@@ -101,14 +101,21 @@ export const getCropsByFarm = async (req, res) => {
 /* ===== Get All Crops of User ===== */
 export const getAllUserCrops = async (req, res) => {
   try {
-    const farms = await Farm.find({ user: req.user._id }).select("_id");
+    const { status } = req.query; // 🔥 get filter from frontend
 
+    const farms = await Farm.find({ user: req.user._id }).select("_id");
     const farmIds = farms.map((f) => f._id);
 
-    const crops = await Crop.find({ farm: { $in: farmIds } }).populate(
-      "farm",
-      "farmName",
-    );
+    // 🔥 build query
+    let query = {
+      farm: { $in: farmIds },
+    };
+
+    if (status) {
+      query.status = status; // ✅ apply filter
+    }
+
+    const crops = await Crop.find(query).populate("farm", "farmName");
 
     const enriched = crops.map((crop) => {
       const age = getCropAgeDays(crop.sowingDate);
@@ -125,7 +132,6 @@ export const getAllUserCrops = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 /* ===== Update Crop ===== */
 export const updateCrop = async (req, res) => {
   try {
