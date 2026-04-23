@@ -10,6 +10,7 @@ import {
   updateTransaction,
   deleteTransaction,
   addHarvestBatch,
+  markCropFailed,
 } from "../controllers/cropController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -26,6 +27,7 @@ router.get("/:id", protect, getCropById);
 
 router.route("/:id").put(protect, updateCrop).delete(protect, deleteCrop);
 router.put("/:id/transaction/:txnId", protect, updateTransaction);
+router.put("/:id/fail", protect, markCropFailed);
 router.delete("/:id/transaction/:txnId", protect, deleteTransaction);
 
 export default router;

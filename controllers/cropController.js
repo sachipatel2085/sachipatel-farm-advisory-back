@@ -66,16 +66,26 @@ export const getCropsByFarm = async (req, res) => {
     const farm = await Farm.findById(req.params.farmId);
 
     if (!farm) return res.status(404).json({ message: "Farm not found" });
+
     if (farm.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    const crops = await Crop.find({ farm: req.params.farmId }).sort({
-      createdAt: -1,
-    });
+    // 🔥 BUILD FILTER
+    const filter = {
+      farm: req.params.farmId,
+    };
+
+    // ✅ status filter
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const crops = await Crop.find(filter).sort({ createdAt: -1 });
 
     const enriched = crops.map((crop) => {
       const age = getCropAgeDays(crop.sowingDate);
+
       return {
         ...crop.toObject(),
         cropAgeDays: age,
@@ -88,7 +98,6 @@ export const getCropsByFarm = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 /* ===== Get All Crops of User ===== */
 export const getAllUserCrops = async (req, res) => {
   try {
@@ -225,7 +234,8 @@ export const addHarvestBatch = async (req, res) => {
       type: "income",
       category: "harvest",
     });
-
+    // mark crop as harvested
+    crop.status = "harvested";
     await crop.save();
 
     await CropHistory.create({
@@ -241,7 +251,6 @@ export const addHarvestBatch = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 export const addTransaction = async (req, res) => {
   try {
     const { title, quantity, price, amount, type, category, note, date, shop } =
@@ -385,6 +394,34 @@ export const deleteTransaction = async (req, res) => {
     await crop.save();
 
     res.json({ message: "Transaction deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const markCropFailed = async (req, res) => {
+  try {
+    const crop = await Crop.findById(req.params.id);
+
+    if (!crop) return res.status(404).json({ message: "Crop not found" });
+
+    const farm = await Farm.findById(crop.farm);
+    if (farm.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    crop.status = "failed";
+
+    await crop.save();
+
+    await CropHistory.create({
+      crop: crop._id,
+      title: "Crop Failed ❌",
+      note: "Marked as failed",
+      type: "failure",
+    });
+
+    res.json(crop);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

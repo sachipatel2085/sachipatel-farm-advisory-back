@@ -41,8 +41,8 @@ const cropSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["growing", "harvested", "failed"],
-      default: "growing",
+      enum: ["active", "harvested", "failed"],
+      default: "active",
     },
     history: [
       {
