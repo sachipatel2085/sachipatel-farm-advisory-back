@@ -381,8 +381,9 @@ export const deleteTransaction = async (req, res) => {
     const { txnId } = req.params;
 
     const crop = await Crop.findById(req.params.id);
-    const txn = crop.transactions.id(txnId);
+    if (!crop) return res.status(404).json({ message: "Crop not found" });
 
+    const txn = crop.transactions.id(txnId);
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
 
     // 🔥 delete linked credit
@@ -390,12 +391,13 @@ export const deleteTransaction = async (req, res) => {
       await Credit.findByIdAndDelete(txn.creditId);
     }
 
-    // yield fix
+    // 🔥 yield fix
     if (txn.type === "income") {
       crop.actualYield -= Number(txn.quantity || 0);
     }
 
-    txn.remove();
+    // ✅ FIXED DELETE
+    crop.transactions.pull(txnId);
 
     await crop.save();
 
@@ -404,7 +406,6 @@ export const deleteTransaction = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 export const markCropFailed = async (req, res) => {
   try {
     const crop = await Crop.findById(req.params.id);
