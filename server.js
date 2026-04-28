@@ -25,6 +25,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "https://sachipatel-farm-advisory-back.onrender.com",
+      "https://sachipatel-farm-advisory.vercel.app",
     ],
     credentials: true,
   }),
