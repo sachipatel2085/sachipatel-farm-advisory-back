@@ -15,6 +15,7 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import resolveRoute from "./routes/resolve.js";
 import financeRoute from "./routes/financeRoutes.js";
 import cropHistoryRoutes from "./routes/cropHistoryRoutes.js";
+import aiRoutes from "./routes/ai.js";
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/uploads", express.static("uploads"));
 app.use("/api/resolve", resolveRoute);
 app.use("/api/finance", financeRoute);
+app.use("/api/ai", aiRoutes);
 
 const PORT = process.env.PORT || 5000;
 
