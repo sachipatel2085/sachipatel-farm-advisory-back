@@ -89,7 +89,7 @@ export const deleteFarm = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-//
+
 export const uploadFarmPhotos = async (req, res) => {
   try {
     const farm = await Farm.findById(req.params.id);
