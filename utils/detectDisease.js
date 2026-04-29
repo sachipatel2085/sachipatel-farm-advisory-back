@@ -7,3 +7,4 @@ export const detectDisease = async (imagePath) => {
   const [result] = await client.labelDetection(imagePath);
   return result.labelAnnotations.map((l) => l.description.toLowerCase());
 };
+//

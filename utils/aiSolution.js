@@ -4,7 +4,7 @@ import OpenAI from "openai";
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
+//
 export const getSolution = async (disease) => {
   const prompt = `
 You are an expert agriculture advisor in India.

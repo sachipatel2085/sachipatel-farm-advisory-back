@@ -7,3 +7,4 @@ export const mapDisease = (labels) => {
 
   return "Unknown Issue";
 };
+//

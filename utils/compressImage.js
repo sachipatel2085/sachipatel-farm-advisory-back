@@ -12,6 +12,6 @@ export const compressImage = async (inputPath) => {
     .resize({ width: 800 })
     .jpeg({ quality: 70 })
     .toFile(outputPath);
-
+  //
   return outputPath;
 };

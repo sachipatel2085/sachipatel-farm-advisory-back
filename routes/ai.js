@@ -16,7 +16,7 @@ router.post("/detect", upload.single("image"), async (req, res) => {
 
     // 1. Compress
     const compressedPath = await compressImage(originalPath);
-
+    //
     // 2. Detect disease
     const labels = await detectDisease(compressedPath);
     const disease = mapDisease(labels);
