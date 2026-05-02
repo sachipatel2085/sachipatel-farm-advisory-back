@@ -1,7 +1,8 @@
+import dotenv from "dotenv";
+dotenv.config({ path: "./.env" });
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
-import dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes.js";
 import { protect } from "./middleware/authMiddleware.js";
 import farmRoutes from "./routes/farmRoutes.js";
@@ -16,8 +17,6 @@ import resolveRoute from "./routes/resolve.js";
 import financeRoute from "./routes/financeRoutes.js";
 import cropHistoryRoutes from "./routes/cropHistoryRoutes.js";
 import aiRoutes from "./routes/ai.js";
-
-dotenv.config();
 
 const app = express();
 
