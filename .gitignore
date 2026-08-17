@@ -1,0 +1,11 @@
+.env
+.env
+.env.local
+.env.*
+!.env.example
+
+key.json
+
+node_modules/
+
+uploads/
