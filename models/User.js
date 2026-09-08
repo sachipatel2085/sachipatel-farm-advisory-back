@@ -11,18 +11,43 @@ const userSchema = new mongoose.Schema(
       maxlength: 100,
     },
 
+    email: {
+      type: String,
+      unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
+    },
+
     phone: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true,
       trim: true,
     },
 
     password: {
       type: String,
-      required: true,
       minlength: 6,
       select: false,
+    },
+
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: null,
+    },
+
+    profileImage: {
+      type: String,
+      default: null,
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
     },
 
     language: {
@@ -60,8 +85,11 @@ const userSchema = new mongoose.Schema(
   },
 );
 
+// Hash password only when password exists
 userSchema.pre("save", async function () {
-  if (!this.isModified("password")) return;
+  if (!this.isModified("password") || !this.password) {
+    return;
+  }
 
   this.password = await bcrypt.hash(this.password, 12);
 });

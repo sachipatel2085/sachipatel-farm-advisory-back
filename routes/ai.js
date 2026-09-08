@@ -12,33 +12,50 @@ const router = express.Router();
 
 const PY_API_URL = process.env.PY_API_URL;
 
-/* ✅ SAFE DELETE FUNCTION (fixes EBUSY error) */
-const safeDelete = (filePath) => {
-  if (!fs.existsSync(filePath)) return;
+const safeDelete = (filePath, retries = 5) => {
+  if (!filePath || !fs.existsSync(filePath)) return;
 
-  setTimeout(() => {
-    fs.unlink(filePath, (err) => {
-      if (err) console.log("Delete failed:", err.message);
-      else console.log("Deleted:", filePath);
-    });
-  }, 2000);
+  fs.unlink(filePath, (err) => {
+    if (!err) {
+      console.log("Deleted:", filePath);
+      return;
+    }
+
+    if (err.code === "EBUSY" && retries > 0) {
+      console.log(`File busy. Retrying... (${retries} attempts left)`);
+
+      setTimeout(() => {
+        safeDelete(filePath, retries - 1);
+      }, 1000);
+
+      return;
+    }
+
+    console.log("Delete failed:", err.code, err.message);
+  });
 };
 
 router.post("/detect", upload.single("image"), async (req, res) => {
+  let originalPath;
+  let compressedPath;
+
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No image uploaded" });
+      return res.status(400).json({
+        error: "No image uploaded",
+      });
     }
 
-    const originalPath = req.file.path;
+    originalPath = req.file.path;
+
     console.log("STEP 1: Upload OK");
 
-    /* 🔹 Compress image */
-    const compressedPath = await compressImage(originalPath);
+    compressedPath = await compressImage(originalPath);
+
     console.log("STEP 2: Compression OK");
 
-    /* 🔹 Send to Python ML API */
     const formData = new FormData();
+
     formData.append("image", fs.createReadStream(compressedPath));
 
     const mlResponse = await axios.post(
@@ -51,30 +68,23 @@ router.post("/detect", upload.single("image"), async (req, res) => {
 
     console.log("STEP 3: ML Response:", mlResponse.data);
 
-    /* 🔹 Extract ML data */
     const { disease, confidence, top_predictions } = mlResponse.data;
 
-    /* 🔹 Format disease name */
     const cleanDisease = formatDisease(disease);
 
     console.log("STEP 4: Disease:", cleanDisease);
 
-    /* 🔹 Get AI advisory (safe fallback) */
     let solution = "AI service unavailable";
 
     try {
       solution = await analyzeImage(cleanDisease);
+
       console.log("STEP 5: AI OK");
     } catch (err) {
       console.log("AI FAILED:", err.message);
     }
 
-    /* 🔹 Cleanup (safe delete) */
-    safeDelete(originalPath);
-    safeDelete(compressedPath);
-
-    /* 🔹 Final response */
-    res.json({
+    return res.json({
       disease: cleanDisease,
       confidence,
       top_predictions,
@@ -83,11 +93,19 @@ router.post("/detect", upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error("DETECT ERROR:", err.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Detection failed",
       details: err.message,
     });
+  } finally {
+    // Cleanup after response processing
+    if (originalPath) {
+      safeDelete(originalPath);
+    }
+
+    if (compressedPath) {
+      safeDelete(compressedPath);
+    }
   }
 });
-
 export default router;
