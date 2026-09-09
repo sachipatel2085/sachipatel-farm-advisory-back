@@ -16,6 +16,8 @@ import resolveRoute from "./routes/resolve.js";
 import financeRoute from "./routes/financeRoutes.js";
 import cropHistoryRoutes from "./routes/cropHistoryRoutes.js";
 import aiRoutes from "./routes/ai.js";
+import mandiRoutes from "./routes/mandiRoutes.js";
+import MandiService from "./services/mandiService.js";
 import { apiLimiter } from "./middleware/rateLimitMiddleware.js";
 
 const app = express();
@@ -39,7 +41,16 @@ app.get("/", (req, res) => {
 
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("mongoDB is connected"))
+  .then(async () => {
+    console.log("mongoDB is connected");
+    // Check and initialize default mandi market rates if empty
+    try {
+      const seedResult = await MandiService.seedInitialData();
+      console.log("Mandi initialization:", seedResult.message);
+    } catch (seedErr) {
+      console.warn("Mandi initial seeding warning:", seedErr.message);
+    }
+  })
   .catch((err) => {
     console.error("mongo error : ", err);
     process.exit(1);
@@ -60,7 +71,9 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/resolve", resolveRoute);
 app.use("/api/finance", financeRoute);
 app.use("/api/ai", aiRoutes);
+app.use("/api/mandi", mandiRoutes);
 app.use((err, req, res, next) => {
+
   console.error(err);
 
   res.status(500).json({
