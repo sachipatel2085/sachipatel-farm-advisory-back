@@ -1,6 +1,8 @@
+import mongoose from "mongoose";
 import Crop from "../models/Crop.js";
 import Farm from "../models/Farm.js";
 import Credit from "../models/Credit.js"; // 🔥 import
+
 
 /* ===== Helpers ===== */
 
@@ -262,67 +264,109 @@ export const addTransaction = async (req, res) => {
     const { title, quantity, price, amount, type, category, note, date, shop } =
       req.body;
 
+    if (!title || !title.trim()) {
+      return res.status(400).json({ message: "Transaction title is required" });
+    }
+
+    if (!type || !["expense", "income"].includes(type)) {
+      return res.status(400).json({ message: "Valid transaction type (income or expense) is required" });
+    }
+
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount < 0) {
+      return res.status(400).json({ message: "Valid amount is required" });
+    }
+
     const crop = await Crop.findById(req.params.id);
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
+    if (!farm) return res.status(404).json({ message: "Farm not found" });
     if (farm.user.toString() !== req.user._id.toString())
       return res.status(403).json({ message: "Unauthorized" });
+
+    // Validate shop ObjectId safely (must be valid 24 hex char ObjectId, not empty string)
+    const validShopId =
+      shop && typeof shop === "string" && shop.trim() !== "" && mongoose.Types.ObjectId.isValid(shop)
+        ? new mongoose.Types.ObjectId(shop)
+        : null;
+
+    const txnDate = date && !isNaN(new Date(date).getTime()) ? new Date(date) : new Date();
 
     // 🔥 CREATE CREDIT IF EXPENSE + SHOP
     let credit = null;
 
-    if (type === "expense" && shop) {
+    if (type === "expense" && validShopId) {
       credit = await Credit.create({
         user: req.user._id,
-        shop,
+        shop: validShopId,
         crop: crop._id,
-        amount,
-        item: title,
+        amount: numAmount,
+        item: title.trim(),
+        date: txnDate,
       });
     }
 
     // ✅ PUSH TRANSACTION
     crop.transactions.push({
-      title,
-      quantity,
-      price,
-      amount,
+      title: title.trim(),
+      quantity: Number(quantity) || 0,
+      price: Number(price) || 0,
+      amount: numAmount,
       type,
-      category,
-      note,
-      date,
-      shop,
+      category: category || (type === "income" ? "cropSale" : "other"),
+      note: note ? String(note).trim() : "",
+      date: txnDate,
+      shop: validShopId,
       creditId: credit?._id || null,
     });
+
+    // Update yield if income
+    if (type === "income" && quantity) {
+      crop.actualYield = (crop.actualYield || 0) + Number(quantity || 0);
+    }
 
     await crop.save();
 
     // 🔥 LINK BACK (VERY IMPORTANT)
     if (credit) {
       const txn = crop.transactions[crop.transactions.length - 1];
-
       credit.transactionId = txn._id;
       await credit.save();
     }
-    res.json(crop.transactions);
+
+    res.status(201).json(crop.transactions);
   } catch (err) {
+    console.error("addTransaction error:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
 // ✏️ Edit transaction
 export const updateTransaction = async (req, res) => {
   try {
     const { txnId } = req.params;
 
     const crop = await Crop.findById(req.params.id);
-    const txn = crop.transactions.id(txnId);
+    if (!crop) return res.status(404).json({ message: "Crop not found" });
 
+    const farm = await Farm.findById(crop.farm);
+    if (!farm) return res.status(404).json({ message: "Farm not found" });
+    if (farm.user.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: "Unauthorized" });
+
+    const txn = crop.transactions.id(txnId);
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
 
     const oldShop = txn.shop?.toString();
-    const newShop = req.body.shop;
-    const newAmount = Number(req.body.amount);
+    const newShop =
+      req.body.shop && typeof req.body.shop === "string" && req.body.shop.trim() !== "" && mongoose.Types.ObjectId.isValid(req.body.shop)
+        ? new mongoose.Types.ObjectId(req.body.shop)
+        : null;
+
+    const newAmount = req.body.amount !== undefined ? Number(req.body.amount) : txn.amount;
+    const newTitle = req.body.title ? req.body.title.trim() : txn.title;
+    const newDate = req.body.date && !isNaN(new Date(req.body.date).getTime()) ? new Date(req.body.date) : txn.date;
 
     // 🔥 HANDLE CREDIT SYNC
     if (txn.creditId) {
@@ -330,51 +374,70 @@ export const updateTransaction = async (req, res) => {
 
       // ❌ shop removed
       if (!newShop) {
-        await Credit.findByIdAndDelete(txn.creditId);
+        if (credit) await Credit.findByIdAndDelete(txn.creditId);
         txn.creditId = null;
         txn.shop = null;
       }
-
       // 🔁 shop changed
-      else if (oldShop !== newShop) {
-        credit.shop = newShop;
-        credit.amount = newAmount;
-        await credit.save();
-
+      else if (oldShop !== newShop.toString()) {
+        if (credit) {
+          credit.shop = newShop;
+          credit.amount = newAmount;
+          credit.item = newTitle;
+          await credit.save();
+        }
         txn.shop = newShop;
       }
-
-      // ✏️ amount change
+      // ✏️ amount or item change
       else {
-        credit.amount = newAmount;
-        await credit.save();
+        if (credit) {
+          credit.amount = newAmount;
+          credit.item = newTitle;
+          await credit.save();
+        }
       }
     }
-
-    // 🔥 new shop added
+    // 🔥 new shop added to an existing expense
     else if (newShop && txn.type === "expense") {
       const credit = await Credit.create({
         user: req.user._id,
         shop: newShop,
         crop: crop._id,
         amount: newAmount,
-        item: req.body.title,
+        item: newTitle,
+        transactionId: txn._id,
       });
 
       txn.creditId = credit._id;
       txn.shop = newShop;
     }
 
-    // update txn
-    Object.assign(txn, req.body);
+    // Adjust actual yield if income quantity changed
+    if (txn.type === "income" && req.body.quantity !== undefined) {
+      const oldQty = Number(txn.quantity || 0);
+      const newQty = Number(req.body.quantity || 0);
+      crop.actualYield = Math.max(0, (crop.actualYield || 0) - oldQty + newQty);
+      txn.quantity = newQty;
+    }
+
+    // Explicit field assignments
+    if (req.body.title) txn.title = newTitle;
+    if (req.body.amount !== undefined) txn.amount = newAmount;
+    if (req.body.price !== undefined) txn.price = Number(req.body.price || 0);
+    if (req.body.category) txn.category = req.body.category;
+    if (req.body.note !== undefined) txn.note = req.body.note;
+    txn.date = newDate;
+    txn.shop = newShop;
 
     await crop.save();
 
     res.json(txn);
   } catch (err) {
+    console.error("updateTransaction error:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
 // 🗑 Delete transaction
 export const deleteTransaction = async (req, res) => {
   try {
@@ -382,6 +445,11 @@ export const deleteTransaction = async (req, res) => {
 
     const crop = await Crop.findById(req.params.id);
     if (!crop) return res.status(404).json({ message: "Crop not found" });
+
+    const farm = await Farm.findById(crop.farm);
+    if (!farm) return res.status(404).json({ message: "Farm not found" });
+    if (farm.user.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: "Unauthorized" });
 
     const txn = crop.transactions.id(txnId);
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
@@ -393,7 +461,7 @@ export const deleteTransaction = async (req, res) => {
 
     // 🔥 yield fix
     if (txn.type === "income") {
-      crop.actualYield -= Number(txn.quantity || 0);
+      crop.actualYield = Math.max(0, (crop.actualYield || 0) - Number(txn.quantity || 0));
     }
 
     // ✅ FIXED DELETE
@@ -403,6 +471,7 @@ export const deleteTransaction = async (req, res) => {
 
     res.json({ message: "Transaction deleted" });
   } catch (err) {
+    console.error("deleteTransaction error:", err);
     res.status(500).json({ message: err.message });
   }
 };

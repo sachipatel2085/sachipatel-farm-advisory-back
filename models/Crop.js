@@ -71,16 +71,19 @@ const cropSchema = new mongoose.Schema(
           },
 
           category: String,
+          note: String,
           date: { type: Date, default: Date.now },
           shop: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Shop",
+            default: null,
           },
 
           // 🔥 LINK CREDIT
           creditId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Credit",
+            default: null,
           },
         },
       ],
