@@ -17,7 +17,15 @@ import financeRoute from "./routes/financeRoutes.js";
 import cropHistoryRoutes from "./routes/cropHistoryRoutes.js";
 import aiRoutes from "./routes/ai.js";
 import mandiRoutes from "./routes/mandiRoutes.js";
+import cropActivityRoutes from "./routes/cropActivityRoutes.js";
+import cropPlanningRoutes from "./routes/cropPlanningRoutes.js";
+import communityRoutes from "./routes/communityRoutes.js";
+import weatherRoutes from "./routes/weatherRoutes.js";
 import MandiService from "./services/mandiService.js";
+import { seedDefaultAdvisoryRules } from "./controllers/advisoryController.js";
+import { seedCropDecisionRules } from "./controllers/cropPlanningController.js";
+import { seedInitialCommunityDiscussions } from "./controllers/communityController.js";
+import { backfillSlugs } from "./utils/slugify.js";
 import { apiLimiter } from "./middleware/rateLimitMiddleware.js";
 
 const app = express();
@@ -50,6 +58,34 @@ mongoose
     } catch (seedErr) {
       console.warn("Mandi initial seeding warning:", seedErr.message);
     }
+
+    // Check and initialize default agricultural advisory rules if empty
+    try {
+      await seedDefaultAdvisoryRules();
+    } catch (advisoryErr) {
+      console.warn("Advisory initial seeding warning:", advisoryErr.message);
+    }
+
+    // Check and initialize default pre-sowing and rotation decision rules if empty
+    try {
+      await seedCropDecisionRules();
+    } catch (decisionErr) {
+      console.warn("Crop decision seeding warning:", decisionErr.message);
+    }
+
+    // Check and initialize initial community discussions if empty
+    try {
+      await seedInitialCommunityDiscussions();
+    } catch (communityErr) {
+      console.warn("Community initial seeding warning:", communityErr.message);
+    }
+
+    // Ensure all existing farms, crops, posts, and shops have unique slugs
+    try {
+      await backfillSlugs();
+    } catch (slugErr) {
+      console.warn("Slug backfill warning:", slugErr.message);
+    }
   })
   .catch((err) => {
     console.error("mongo error : ", err);
@@ -65,6 +101,7 @@ app.use("/api/expenses", expenseRoutes);
 app.use("/api/profit", profitRoutes);
 app.use("/api/crop-history", cropHistoryRoutes);
 app.use("/api/decision", decisionRoutes);
+app.use("/api/planning", cropPlanningRoutes);
 app.use("/api/advisory", advisoryRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/uploads", express.static("uploads"));
@@ -72,8 +109,12 @@ app.use("/api/resolve", resolveRoute);
 app.use("/api/finance", financeRoute);
 app.use("/api/ai", aiRoutes);
 app.use("/api/mandi", mandiRoutes);
-app.use((err, req, res, next) => {
+app.use("/api/activities", cropActivityRoutes);
+app.use("/api/crop-activities", cropActivityRoutes);
+app.use("/api/community", communityRoutes);
+app.use("/api/weather", weatherRoutes);
 
+app.use((err, req, res, next) => {
   console.error(err);
 
   res.status(500).json({
@@ -82,7 +123,4 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`server run on port ${PORT}`));

@@ -3,6 +3,7 @@ import Farm from "../models/Farm.js";
 import Shop from "../models/Shop.js";
 import Credit from "../models/Credit.js";
 import Payment from "../models/Payment.js";
+import { generateUniqueSlug, buildIdOrSlugQuery } from "../utils/slugify.js";
 
 /* ===== FARM FINANCE ===== */
 export const getFinanceSummary = async (req, res) => {
@@ -100,10 +101,12 @@ export const getShopSummary = async (req, res) => {
 export const createShop = async (req, res) => {
   try {
     const { name, phone, address, openingBalance } = req.body;
+    const slug = await generateUniqueSlug(Shop, name);
 
     const shop = await Shop.create({
       user: req.user._id,
       name,
+      slug,
       phone,
       address,
       openingBalance,
@@ -127,13 +130,13 @@ export const getShopLedger = async (req, res) => {
     const shopId = req.params.id;
     const userId = req.user._id;
 
-    const shop = await Shop.findOne({ _id: shopId, user: userId });
+    const shop = await Shop.findOne(buildIdOrSlugQuery(shopId, { user: userId }));
     if (!shop) {
       return res.status(404).json({ message: "Shop not found" });
     }
 
-    const credits = await Credit.find({ shop: shopId });
-    const payments = await Payment.find({ shop: shopId });
+    const credits = await Credit.find({ shop: shop._id });
+    const payments = await Payment.find({ shop: shop._id });
 
     let ledger = [];
 

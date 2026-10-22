@@ -16,6 +16,14 @@ const shopSchema = new mongoose.Schema(
       trim: true,
     },
 
+    slug: {
+      type: String,
+      unique: true,
+      index: true,
+      sparse: true,
+      trim: true,
+    },
+
     phone: {
       type: String,
       trim: true,

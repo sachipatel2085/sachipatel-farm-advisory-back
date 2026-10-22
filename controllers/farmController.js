@@ -1,14 +1,23 @@
 import Farm from "../models/Farm.js";
 import Crop from "../models/Crop.js";
+import { generateUniqueSlug, buildIdOrSlugQuery } from "../utils/slugify.js";
+import crypto from "crypto";
+import path from "path";
+import sharp from "sharp";
+
+const uploadPath = path.resolve("uploads/farms");
 
 /* Create Farm */
 export const createFarm = async (req, res) => {
   try {
     const { farmName, totalArea, location } = req.body;
 
+    const slug = await generateUniqueSlug(Farm, farmName);
+
     const farm = await Farm.create({
       user: req.user._id,
       farmName,
+      slug,
       totalArea,
       location,
     });
@@ -29,13 +38,12 @@ export const getFarms = async (req, res) => {
   }
 };
 
-/* Get single farm */
+/* Get single farm by ID or Slug */
 export const getFarmById = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -54,13 +62,12 @@ export const getFarmById = async (req, res) => {
   }
 };
 
-/* Update farm */
+/* Update farm by ID or Slug */
 export const updateFarm = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -77,6 +84,10 @@ export const updateFarm = async (req, res) => {
     farm.totalArea = req.body.totalArea || farm.totalArea;
     farm.location = req.body.location || farm.location;
 
+    if (!farm.slug) {
+      farm.slug = await generateUniqueSlug(Farm, farm.farmName, farm._id);
+    }
+
     const updatedFarm = await farm.save();
     res.json(updatedFarm);
   } catch (error) {
@@ -84,13 +95,12 @@ export const updateFarm = async (req, res) => {
   }
 };
 
-/* Delete farm */
+/* Delete farm by ID or Slug */
 export const deleteFarm = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -111,10 +121,9 @@ export const deleteFarm = async (req, res) => {
 
 export const uploadFarmPhotos = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -132,7 +141,6 @@ export const uploadFarmPhotos = async (req, res) => {
 
     for (const file of req.files) {
       const filename = `${crypto.randomUUID()}.webp`;
-
       const outputPath = path.join(uploadPath, filename);
 
       await sharp(file.buffer)
@@ -151,6 +159,7 @@ export const uploadFarmPhotos = async (req, res) => {
       uploadedPaths.push(`/uploads/farms/${filename}`);
     }
 
+    farm.photos = farm.photos || [];
     farm.photos.push(...uploadedPaths);
 
     await farm.save();
@@ -167,13 +176,13 @@ export const uploadFarmPhotos = async (req, res) => {
     });
   }
 };
+
 /* ===== FARM ANALYTICS ===== */
 export const getFarmAnalytics = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -196,7 +205,26 @@ export const getFarmAnalytics = async (req, res) => {
       });
     }
 
-    // existing calculation...
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let totalYield = 0;
+
+    crops.forEach((crop) => {
+      totalYield += crop.actualYield || 0;
+      (crop.transactions || []).forEach((t) => {
+        if (t.type === "income") totalIncome += Number(t.amount);
+        else totalExpense += Number(t.amount);
+      });
+    });
+
+    res.json({
+      totalCrops: crops.length,
+      avgHealth: 85,
+      totalIncome,
+      totalExpense,
+      profit: totalIncome - totalExpense,
+      totalYield,
+    });
   } catch (error) {
     console.error("Farm analytics error:", error);
 
@@ -205,12 +233,12 @@ export const getFarmAnalytics = async (req, res) => {
     });
   }
 };
+
 export const getFarmHistory = async (req, res) => {
   try {
-    const farm = await Farm.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    const farm = await Farm.findOne(
+      buildIdOrSlugQuery(req.params.id, { user: req.user._id })
+    );
 
     if (!farm) {
       return res.status(404).json({
@@ -226,7 +254,7 @@ export const getFarmHistory = async (req, res) => {
       let income = 0;
       let expense = 0;
 
-      crop.transactions.forEach((t) => {
+      (crop.transactions || []).forEach((t) => {
         if (t.type === "income") {
           income += Number(t.amount);
         } else {
@@ -236,6 +264,7 @@ export const getFarmHistory = async (req, res) => {
 
       return {
         cropId: crop._id,
+        cropSlug: crop.slug,
         cropName: crop.cropName,
         season: crop.season,
         sowingDate: crop.sowingDate,

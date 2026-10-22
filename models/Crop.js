@@ -8,9 +8,23 @@ const cropSchema = new mongoose.Schema(
       required: true,
     },
 
+    field: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Field",
+      default: null,
+    },
+
     cropName: {
       type: String,
       required: true,
+      trim: true,
+    },
+
+    slug: {
+      type: String,
+      unique: true,
+      index: true,
+      sparse: true,
       trim: true,
     },
 

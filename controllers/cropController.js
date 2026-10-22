@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
 import Crop from "../models/Crop.js";
 import Farm from "../models/Farm.js";
-import Credit from "../models/Credit.js"; // 🔥 import
-
+import Credit from "../models/Credit.js";
+import CropHistory from "../models/CropHistory.js";
+import { generateUniqueSlug, buildIdOrSlugQuery } from "../utils/slugify.js";
 
 /* ===== Helpers ===== */
 
@@ -31,6 +32,7 @@ export const createCrop = async (req, res) => {
   try {
     const {
       farmId,
+      fieldId,
       cropName,
       variety,
       season,
@@ -39,22 +41,32 @@ export const createCrop = async (req, res) => {
       expectedYield,
     } = req.body;
 
-    const farm = await Farm.findById(farmId);
+    const farm = await Farm.findOne(buildIdOrSlugQuery(farmId));
     if (!farm) return res.status(404).json({ message: "Farm not found" });
 
     if (farm.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    const crop = await Crop.create({
-      farm: farmId,
+    const slugText = variety ? `${cropName} ${variety}` : cropName;
+    const slug = await generateUniqueSlug(Crop, slugText);
+
+    const cropData = {
+      farm: farm._id,
       cropName,
+      slug,
       variety,
       season,
       sowingDate,
       expectedDurationDays,
       expectedYield,
-    });
+    };
+
+    if (fieldId && mongoose.Types.ObjectId.isValid(fieldId)) {
+      cropData.field = fieldId;
+    }
+
+    const crop = await Crop.create(cropData);
     await pushHistory(crop._id, "Crop planted", `Sowing date: ${sowingDate}`);
     res.status(201).json(crop);
   } catch (err) {
@@ -65,7 +77,7 @@ export const createCrop = async (req, res) => {
 /* ===== Get Crops of a Farm ===== */
 export const getCropsByFarm = async (req, res) => {
   try {
-    const farm = await Farm.findById(req.params.farmId);
+    const farm = await Farm.findOne(buildIdOrSlugQuery(req.params.farmId));
 
     if (!farm) return res.status(404).json({ message: "Farm not found" });
 
@@ -73,12 +85,12 @@ export const getCropsByFarm = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    // 🔥 BUILD FILTER
+    // BUILD FILTER
     const filter = {
-      farm: req.params.farmId,
+      farm: farm._id,
     };
 
-    // ✅ status filter
+    // status filter
     if (req.query.status) {
       filter.status = req.query.status;
     }
@@ -100,30 +112,31 @@ export const getCropsByFarm = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-/* ===== Get All Crops of User ===== */
+
+/* ===== Get All User Crops ===== */
 export const getAllUserCrops = async (req, res) => {
   try {
-    const { status } = req.query; // 🔥 get filter from frontend
+    const { status } = req.query;
 
     const farms = await Farm.find({ user: req.user._id }).select("_id");
     const farmIds = farms.map((f) => f._id);
 
-    // 🔥 build query
-    let query = {
+    const query = {
       farm: { $in: farmIds },
     };
 
     if (status) {
-      query.status = status; // ✅ apply filter
+      query.status = status;
     }
 
-    const crops = await Crop.find(query).populate("farm", "farmName");
+    const crops = await Crop.find(query).populate("farm", "farmName slug");
 
     const enriched = crops.map((crop) => {
       const age = getCropAgeDays(crop.sowingDate);
       return {
         ...crop.toObject(),
-        farmName: crop.farm.farmName,
+        farmName: crop.farm?.farmName || "My Farm",
+        farmSlug: crop.farm?.slug || null,
         cropAgeDays: age,
         growthStage: getGrowthStage(age, crop.expectedDurationDays),
       };
@@ -134,10 +147,11 @@ export const getAllUserCrops = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 /* ===== Update Crop ===== */
 export const updateCrop = async (req, res) => {
   try {
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -146,6 +160,10 @@ export const updateCrop = async (req, res) => {
     }
 
     Object.assign(crop, req.body);
+    if (!crop.slug) {
+      const slugText = crop.variety ? `${crop.cropName} ${crop.variety}` : crop.cropName;
+      crop.slug = await generateUniqueSlug(Crop, slugText, crop._id);
+    }
     await crop.save();
 
     res.json(crop);
@@ -157,7 +175,7 @@ export const updateCrop = async (req, res) => {
 /* ===== Delete Crop ===== */
 export const deleteCrop = async (req, res) => {
   try {
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -171,11 +189,13 @@ export const deleteCrop = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+/* ===== Get Crop By ID or Slug ===== */
 export const getCropById = async (req, res) => {
   try {
-    const crop = await Crop.findById(req.params.id).populate(
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id)).populate(
       "farm",
-      "farmName user",
+      "farmName slug user",
     );
 
     if (!crop) {
@@ -201,6 +221,7 @@ export const getCropById = async (req, res) => {
     res.json({
       ...crop.toObject(),
       farmName: crop.farm.farmName,
+      farmSlug: crop.farm.slug,
       cropAgeDays: age,
       growthStage: stage,
     });
@@ -208,11 +229,12 @@ export const getCropById = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 export const addHarvestBatch = async (req, res) => {
   try {
     const { quantity, price, note } = req.body;
 
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -222,7 +244,7 @@ export const addHarvestBatch = async (req, res) => {
 
     const amount = Number(quantity) * Number(price);
 
-    // ✅ add harvest batch
+    // add harvest batch
     crop.harvests.push({
       quantity,
       price,
@@ -230,10 +252,10 @@ export const addHarvestBatch = async (req, res) => {
       note,
     });
 
-    // ✅ update total yield
+    // update total yield
     crop.actualYield = (crop.actualYield || 0) + Number(quantity);
 
-    // ✅ auto income transaction
+    // auto income transaction
     crop.transactions.push({
       title: "Harvest Sale",
       quantity,
@@ -259,6 +281,7 @@ export const addHarvestBatch = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 export const addTransaction = async (req, res) => {
   try {
     const { title, quantity, price, amount, type, category, note, date, shop } =
@@ -277,7 +300,7 @@ export const addTransaction = async (req, res) => {
       return res.status(400).json({ message: "Valid amount is required" });
     }
 
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -285,7 +308,6 @@ export const addTransaction = async (req, res) => {
     if (farm.user.toString() !== req.user._id.toString())
       return res.status(403).json({ message: "Unauthorized" });
 
-    // Validate shop ObjectId safely (must be valid 24 hex char ObjectId, not empty string)
     const validShopId =
       shop && typeof shop === "string" && shop.trim() !== "" && mongoose.Types.ObjectId.isValid(shop)
         ? new mongoose.Types.ObjectId(shop)
@@ -293,7 +315,6 @@ export const addTransaction = async (req, res) => {
 
     const txnDate = date && !isNaN(new Date(date).getTime()) ? new Date(date) : new Date();
 
-    // 🔥 CREATE CREDIT IF EXPENSE + SHOP
     let credit = null;
 
     if (type === "expense" && validShopId) {
@@ -307,7 +328,6 @@ export const addTransaction = async (req, res) => {
       });
     }
 
-    // ✅ PUSH TRANSACTION
     crop.transactions.push({
       title: title.trim(),
       quantity: Number(quantity) || 0,
@@ -321,14 +341,12 @@ export const addTransaction = async (req, res) => {
       creditId: credit?._id || null,
     });
 
-    // Update yield if income
     if (type === "income" && quantity) {
       crop.actualYield = (crop.actualYield || 0) + Number(quantity || 0);
     }
 
     await crop.save();
 
-    // 🔥 LINK BACK (VERY IMPORTANT)
     if (credit) {
       const txn = crop.transactions[crop.transactions.length - 1];
       credit.transactionId = txn._id;
@@ -342,12 +360,12 @@ export const addTransaction = async (req, res) => {
   }
 };
 
-// ✏️ Edit transaction
+// Edit transaction
 export const updateTransaction = async (req, res) => {
   try {
     const { txnId } = req.params;
 
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -368,18 +386,14 @@ export const updateTransaction = async (req, res) => {
     const newTitle = req.body.title ? req.body.title.trim() : txn.title;
     const newDate = req.body.date && !isNaN(new Date(req.body.date).getTime()) ? new Date(req.body.date) : txn.date;
 
-    // 🔥 HANDLE CREDIT SYNC
     if (txn.creditId) {
       const credit = await Credit.findById(txn.creditId);
 
-      // ❌ shop removed
       if (!newShop) {
         if (credit) await Credit.findByIdAndDelete(txn.creditId);
         txn.creditId = null;
         txn.shop = null;
-      }
-      // 🔁 shop changed
-      else if (oldShop !== newShop.toString()) {
+      } else if (oldShop !== newShop.toString()) {
         if (credit) {
           credit.shop = newShop;
           credit.amount = newAmount;
@@ -387,18 +401,14 @@ export const updateTransaction = async (req, res) => {
           await credit.save();
         }
         txn.shop = newShop;
-      }
-      // ✏️ amount or item change
-      else {
+      } else {
         if (credit) {
           credit.amount = newAmount;
           credit.item = newTitle;
           await credit.save();
         }
       }
-    }
-    // 🔥 new shop added to an existing expense
-    else if (newShop && txn.type === "expense") {
+    } else if (newShop && txn.type === "expense") {
       const credit = await Credit.create({
         user: req.user._id,
         shop: newShop,
@@ -412,7 +422,6 @@ export const updateTransaction = async (req, res) => {
       txn.shop = newShop;
     }
 
-    // Adjust actual yield if income quantity changed
     if (txn.type === "income" && req.body.quantity !== undefined) {
       const oldQty = Number(txn.quantity || 0);
       const newQty = Number(req.body.quantity || 0);
@@ -420,7 +429,6 @@ export const updateTransaction = async (req, res) => {
       txn.quantity = newQty;
     }
 
-    // Explicit field assignments
     if (req.body.title) txn.title = newTitle;
     if (req.body.amount !== undefined) txn.amount = newAmount;
     if (req.body.price !== undefined) txn.price = Number(req.body.price || 0);
@@ -438,12 +446,12 @@ export const updateTransaction = async (req, res) => {
   }
 };
 
-// 🗑 Delete transaction
+// Delete transaction
 export const deleteTransaction = async (req, res) => {
   try {
     const { txnId } = req.params;
 
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -454,17 +462,14 @@ export const deleteTransaction = async (req, res) => {
     const txn = crop.transactions.id(txnId);
     if (!txn) return res.status(404).json({ message: "Transaction not found" });
 
-    // 🔥 delete linked credit
     if (txn.creditId) {
       await Credit.findByIdAndDelete(txn.creditId);
     }
 
-    // 🔥 yield fix
     if (txn.type === "income") {
       crop.actualYield = Math.max(0, (crop.actualYield || 0) - Number(txn.quantity || 0));
     }
 
-    // ✅ FIXED DELETE
     crop.transactions.pull(txnId);
 
     await crop.save();
@@ -475,9 +480,10 @@ export const deleteTransaction = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 export const markCropFailed = async (req, res) => {
   try {
-    const crop = await Crop.findById(req.params.id);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.id));
 
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 

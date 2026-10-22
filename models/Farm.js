@@ -16,6 +16,14 @@ const farmSchema = new mongoose.Schema(
       maxlength: 100,
     },
 
+    slug: {
+      type: String,
+      unique: true,
+      index: true,
+      sparse: true,
+      trim: true,
+    },
+
     totalArea: {
       type: Number,
       required: true,

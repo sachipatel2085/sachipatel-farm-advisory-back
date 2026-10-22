@@ -1,12 +1,13 @@
 import CropHistory from "../models/CropHistory.js";
 import Crop from "../models/Crop.js";
 import Farm from "../models/Farm.js";
+import { buildIdOrSlugQuery } from "../utils/slugify.js";
 
 export const addCropHistory = async (req, res) => {
   try {
     const { cropId, title, note, type, amount, date } = req.body;
 
-    const crop = await Crop.findById(cropId);
+    const crop = await Crop.findOne(buildIdOrSlugQuery(cropId));
     if (!crop) return res.status(404).json({ message: "Crop not found" });
 
     const farm = await Farm.findById(crop.farm);
@@ -15,7 +16,7 @@ export const addCropHistory = async (req, res) => {
     }
 
     const history = await CropHistory.create({
-      crop: cropId,
+      crop: crop._id,
       title,
       note,
       type,
@@ -31,8 +32,13 @@ export const addCropHistory = async (req, res) => {
 
 export const getCropHistory = async (req, res) => {
   try {
+    const crop = await Crop.findOne(buildIdOrSlugQuery(req.params.cropId));
+    if (!crop) {
+      return res.json([]);
+    }
+
     const history = await CropHistory.find({
-      crop: req.params.cropId,
+      crop: crop._id,
     }).sort({ date: -1 });
 
     res.json(history);
