@@ -113,6 +113,42 @@ export const seedDefaultAdvisoryRules = async () => {
         priority: "green",
         category: "nutrition",
       },
+
+      // Potato rules
+      {
+        cropName: "Potato",
+        minDay: 0,
+        maxDay: 30,
+        message: "Sprouting & emergence stage: Provide light irrigation and scout for black scurf or cutworms.",
+        priority: "green",
+        category: "irrigation",
+      },
+      {
+        cropName: "Potato",
+        minDay: 31,
+        maxDay: 75,
+        message: "Critical tuber bulking stage: High risk of Late Blight in foggy or overcast weather. Spray Mancozeb 75% WP @ 2.5g/L preventatively.",
+        priority: "red",
+        category: "disease",
+      },
+
+      // Rice rules
+      {
+        cropName: "Rice",
+        minDay: 10,
+        maxDay: 40,
+        message: "Active tillering: Maintain 2-3 cm standing water. Apply top-dress Urea and monitor for Yellow Stem Borer dead-hearts.",
+        priority: "yellow",
+        category: "nutrition",
+      },
+      {
+        cropName: "Rice",
+        minDay: 60,
+        maxDay: 90,
+        message: "Panicle initiation & flowering: Keep soil saturated. Inspect lower leaf sheaths for Sheath Blight lesions.",
+        priority: "red",
+        category: "disease",
+      },
     ];
 
     await AdvisoryRule.insertMany(defaultRules);
@@ -120,120 +156,6 @@ export const seedDefaultAdvisoryRules = async () => {
   } catch (err) {
     console.warn("Advisory rules auto-seed error:", err.message);
   }
-};
-
-/* Dynamic Fallback Advisory Generator */
-const generateDynamicFallbacks = (cropName, stageInfo, cropAge, hasRecentSpray, hasRecentFertilizer) => {
-  const advisories = [];
-  const { stage } = stageInfo;
-
-  if (stage === "early") {
-    advisories.push({
-      title: "Seedling Establishment & Water Care",
-      category: "irrigation",
-      priority: "green",
-      stage: "Seedling",
-      message: `Your ${cropName} crop is in the early vegetative/seedling phase (${cropAge} days old). Ensure consistent, light irrigation without waterlogging to support deep root penetration.`,
-      recommendedAction: "Maintain moist topsoil and avoid heavy flood irrigation.",
-    });
-
-    if (!hasRecentFertilizer) {
-      advisories.push({
-        title: "Basal Nutrition Check",
-        category: "nutrition",
-        priority: "yellow",
-        stage: "Seedling",
-        message: `No recent fertilizer recorded in the last 7 days. Ensure basal application of balanced N-P-K and organic compost has been incorporated.`,
-        recommendedAction: "Apply organic manure and starter nutrients as recommended for your soil type.",
-      });
-    }
-
-    advisories.push({
-      title: "Damping-off & Weed Monitoring",
-      category: "pest",
-      priority: "green",
-      stage: "Seedling",
-      message: "Inspect young shoots for damping-off or soil-borne cutworms. Remove initial weeds before they compete for nutrients.",
-      recommendedAction: "Hand weed or light hoeing around young crop plants.",
-    });
-  } else if (stage === "vegetative") {
-    advisories.push({
-      title: "Active Foliage & Growth Booster",
-      category: "nutrition",
-      priority: hasRecentFertilizer ? "green" : "yellow",
-      stage: "Vegetative",
-      message: `Crop is undergoing vigorous vegetative development (${cropAge} days). High nitrogen and micronutrient uptake occurs during this phase.`,
-      recommendedAction: hasRecentFertilizer
-        ? "Nutrient application recently logged. Monitor foliage color and vigor."
-        : "Top-dress with nitrogen (Urea) and apply zinc/micronutrient spray if yellowing appears.",
-    });
-
-    advisories.push({
-      title: "Sucking Pest Surveillance",
-      category: "pest",
-      priority: hasRecentSpray ? "green" : "yellow",
-      stage: "Vegetative",
-      message: "Inspect underside of tender leaves for aphids, thrips, and mites. Look for leaf curling or honeydew secretions.",
-      recommendedAction: "Erect yellow/blue sticky traps. Spray 5% neem seed kernel extract (NSKE) as preventative pest repellent.",
-    });
-
-    advisories.push({
-      title: "Inter-cultivation & Aeration",
-      category: "general",
-      priority: "green",
-      stage: "Vegetative",
-      message: "Conduct shallow inter-row cultivation to aerate the root zone, break soil crust, and conserve moisture.",
-      recommendedAction: "Maintain clean weed-free furrows between crop rows.",
-    });
-  } else if (stage === "flowering") {
-    advisories.push({
-      title: "Critical Flowering Moisture Stage",
-      category: "irrigation",
-      priority: "red",
-      stage: "Flowering",
-      message: `Critical water-sensitive window (${cropAge} days). Moisture stress during flower bud initiation and pollination causes severe blossom drop and reduced yield.`,
-      recommendedAction: "Irrigate on priority. Avoid both prolonged soil drought and excessive standing water during bloom.",
-    });
-
-    advisories.push({
-      title: "Potassium & Boron Foliar Spray",
-      category: "nutrition",
-      priority: "yellow",
-      stage: "Flowering",
-      message: "Foliar application of soluble Boron and Potassium promotes pollen viability, enhances fruit/pod setting, and strengthens cell walls.",
-      recommendedAction: "Spray soluble 0:52:34 or multi-micronutrient mixture during cool morning or evening hours.",
-    });
-
-    advisories.push({
-      title: "Borer & Blight Inspection",
-      category: "pest",
-      priority: "yellow",
-      stage: "Flowering",
-      message: "Inspect flower clusters and young fruit for early borer entry holes, spotted wilting, or fungal leaf blight spots.",
-      recommendedAction: "Remove and destroy damaged flower buds. Apply targeted bio-fungicide if humid weather persists.",
-    });
-  } else {
-    // Harvest / Maturity
-    advisories.push({
-      title: "Pre-Harvest Irrigation Withholding",
-      category: "irrigation",
-      priority: "yellow",
-      stage: "Maturity",
-      message: `Crop is approaching harvest maturity (${cropAge} days). Stop irrigation 7 to 10 days before planned harvest to allow uniform drying and increase sugar/solid content.`,
-      recommendedAction: "Dry down the field to facilitate tractor/labour access and prevent fungal rot on harvested produce.",
-    });
-
-    advisories.push({
-      title: "Harvest Maturity Index",
-      category: "harvest",
-      priority: "green",
-      stage: "Maturity",
-      message: `Examine produce maturity indicators (color change, firm pod texture, moisture percentage). Harvest during dry, sunny weather.`,
-      recommendedAction: "Plan harvest batches, clean storage bins, and check local Mandi auction prices for optimal market dispatch.",
-    });
-  }
-
-  return advisories;
 };
 
 /* Core logic: compute advisories for a given crop, farm, and optional field */
@@ -265,15 +187,50 @@ export const computeAdvisoriesForCropData = async (crop, farm, field) => {
     return cat === "fertilizer" || cat === "nutrition";
   });
 
-  // Query matching rules in database
+  const activeSoil = field?.soilType || farm?.soilType;
+
+  // 1. Check if any advisory rules exist in DB specifically for this crop (configured by Admin / Moderator)
+  const cropRegex = new RegExp(`^${crop.cropName.trim()}$`, "i");
+  const totalCropRules = await AdvisoryRule.countDocuments({
+    cropName: cropRegex,
+    active: true,
+  });
+
+  // 2. If NO advisory rules have been configured for this crop, do NOT invent fake fallbacks!
+  if (totalCropRules === 0) {
+    return {
+      cropId: crop._id,
+      cropSlug: crop.slug,
+      cropName: crop.cropName,
+      variety: crop.variety || "",
+      farmId: farm?._id || null,
+      farmSlug: farm?.slug || null,
+      farmName: farm?.farmName || "Farm",
+      fieldId: field?._id || null,
+      fieldName: field?.name || "",
+      cropAgeDays: cropAge,
+      expectedDurationDays: durationDays,
+      growthStage: stageInfo.stage,
+      growthStageLabel: stageInfo.label,
+      growthProgressPercent: stageInfo.percent,
+      soilType: activeSoil || "General / Loam",
+      recentActivitySummary: {
+        recentSpray: hasRecentSpray,
+        recentFertilizer: hasRecentFertilizer,
+      },
+      isAvailable: false,
+      statusMessage: `Advisory is not available for ${crop.cropName}. Agronomic advisories have not been configured for this crop by administrators or moderators yet.`,
+      advisories: [],
+    };
+  }
+
+  // 3. Query matching rules in database for current crop age window
   const dbRules = await AdvisoryRule.find({
-    cropName: new RegExp(`^${crop.cropName.trim()}$`, "i"),
+    cropName: cropRegex,
     minDay: { $lte: cropAge },
     maxDay: { $gte: cropAge },
     active: true,
   }).lean();
-
-  const activeSoil = field?.soilType || farm?.soilType;
 
   const matchedDbAdvisories = dbRules
     .filter((rule) => {
@@ -290,29 +247,24 @@ export const computeAdvisoriesForCropData = async (crop, farm, field) => {
       priority: r.priority || "green",
       stage: stageInfo.label,
       message: r.message,
-      recommendedAction: r.recommendedAction || "Follow recommended agricultural practices for optimal yield.",
+      recommendedAction:
+        r.recommendedAction || "Follow recommended agricultural practices for optimal yield.",
       source: "APMC Advisory Rule",
     }));
 
-  // Generate dynamic fallback rules to ensure the farmer ALWAYS gets rich guidance
-  const dynamicAdvisories = generateDynamicFallbacks(
-    crop.cropName,
-    stageInfo,
-    cropAge,
-    hasRecentSpray,
-    hasRecentFertilizer
-  );
-
-  // Combine database matches and dynamic fallbacks without duplicate messages
-  const allAdvisories = [...matchedDbAdvisories, ...dynamicAdvisories];
-
   // Deduplicate
   const seen = new Set();
-  const finalAdvisories = allAdvisories.filter((a) => {
+  const finalAdvisories = matchedDbAdvisories.filter((a) => {
     if (seen.has(a.message)) return false;
     seen.add(a.message);
     return true;
   });
+
+  const isAvailable = true;
+  const statusMessage =
+    finalAdvisories.length === 0
+      ? `No active advisories for ${crop.cropName} at the current growth stage (Day ${cropAge}). Check back as the crop develops.`
+      : null;
 
   return {
     cropId: crop._id,
@@ -334,6 +286,8 @@ export const computeAdvisoriesForCropData = async (crop, farm, field) => {
       recentSpray: hasRecentSpray,
       recentFertilizer: hasRecentFertilizer,
     },
+    isAvailable,
+    statusMessage,
     advisories: finalAdvisories,
   };
 };

@@ -21,8 +21,10 @@ import cropActivityRoutes from "./routes/cropActivityRoutes.js";
 import cropPlanningRoutes from "./routes/cropPlanningRoutes.js";
 import communityRoutes from "./routes/communityRoutes.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import MandiService from "./services/mandiService.js";
 import { seedDefaultAdvisoryRules } from "./controllers/advisoryController.js";
+import { seedDefaultGeneralCropTasks } from "./controllers/cropActivityController.js";
 import { seedCropDecisionRules } from "./controllers/cropPlanningController.js";
 import { seedInitialCommunityDiscussions } from "./controllers/communityController.js";
 import { backfillSlugs } from "./utils/slugify.js";
@@ -64,6 +66,13 @@ mongoose
       await seedDefaultAdvisoryRules();
     } catch (advisoryErr) {
       console.warn("Advisory initial seeding warning:", advisoryErr.message);
+    }
+
+    // Check and initialize default general crop tasks if empty
+    try {
+      await seedDefaultGeneralCropTasks();
+    } catch (generalTaskErr) {
+      console.warn("General crop tasks seeding warning:", generalTaskErr.message);
     }
 
     // Check and initialize default pre-sowing and rotation decision rules if empty
@@ -113,6 +122,7 @@ app.use("/api/activities", cropActivityRoutes);
 app.use("/api/crop-activities", cropActivityRoutes);
 app.use("/api/community", communityRoutes);
 app.use("/api/weather", weatherRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

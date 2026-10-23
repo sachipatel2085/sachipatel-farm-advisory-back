@@ -60,3 +60,32 @@ export const optionalProtect = async (req, res, next) => {
   next();
 };
 
+export const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Not authorized. Please login." });
+  }
+
+  if (req.user.role !== "admin" && req.user.role !== "moderator") {
+    return res.status(403).json({
+      message: "Access forbidden: Administrator or Moderator privileges required",
+    });
+  }
+
+  next();
+};
+
+export const requireRole = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authorized. Please login." });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: `Access forbidden: Requires one of the following roles: ${roles.join(", ")}`,
+      });
+    }
+
+    next();
+  };
+};

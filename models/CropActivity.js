@@ -94,6 +94,11 @@ const cropActivitySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isGeneralTask: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true }
 );
