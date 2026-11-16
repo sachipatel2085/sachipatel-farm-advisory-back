@@ -6,6 +6,7 @@ import Comment from "../models/Comment.js";
 import AdvisoryRule from "../models/AdvisoryRule.js";
 import CropDecisionRule from "../models/CropDecisionRule.js";
 import GeneralCropTask from "../models/GeneralCropTask.js";
+import PlantDiseaseAdvisory from "../models/PlantDiseaseAdvisory.js";
 import mongoose from "mongoose";
 
 /**
@@ -36,6 +37,7 @@ export const getAdminOverview = async (req, res) => {
       totalAdvisories,
       cropDecisionRulesCount,
       totalGeneralTasks,
+      totalDiseaseAdvisories,
     ] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ role: "farmer" }),
@@ -56,6 +58,7 @@ export const getAdminOverview = async (req, res) => {
       AdvisoryRule.countDocuments(),
       CropDecisionRule.countDocuments(),
       GeneralCropTask.countDocuments(),
+      PlantDiseaseAdvisory.countDocuments(),
     ]);
 
     const totalAcreage = farmsAcreageAgg[0]?.totalAcreage || 0;
@@ -181,6 +184,7 @@ export const getAdminOverview = async (req, res) => {
         unansweredDiscussions,
         totalAdvisories: totalAdvisories + cropDecisionRulesCount,
         totalGeneralTasks,
+        totalDiseaseAdvisories,
       },
       monthlyTrends,
       seasonDistribution,
