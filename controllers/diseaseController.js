@@ -16,7 +16,7 @@ export const seedDefaultPlantDiseases = async () => {
             active: true,
           },
         },
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, returnDocument: 'after', runValidators: true }
       );
     }
 
@@ -362,7 +362,7 @@ export const updateAdminDiseaseAdvisory = async (req, res) => {
   try {
     const { id } = req.params;
     const updated = await PlantDiseaseAdvisory.findByIdAndUpdate(id, req.body, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     });
 

@@ -455,7 +455,7 @@ export const updateAdminAdvisoryRule = async (req, res) => {
   try {
     const { id } = req.params;
     const rule = await AdvisoryRule.findByIdAndUpdate(id, req.body, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     });
 
@@ -642,7 +642,7 @@ export const updateAdminGeneralTask = async (req, res) => {
   try {
     const { id } = req.params;
     const task = await GeneralCropTask.findByIdAndUpdate(id, req.body, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     }).populate("createdBy", "name role email");
 

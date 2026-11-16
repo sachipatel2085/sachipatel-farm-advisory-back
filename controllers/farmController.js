@@ -10,7 +10,7 @@ const uploadPath = path.resolve("uploads/farms");
 /* Create Farm */
 export const createFarm = async (req, res) => {
   try {
-    const { farmName, totalArea, location } = req.body;
+    const { farmName, totalArea, location, soilType, irrigationType, irrigation } = req.body;
 
     const slug = await generateUniqueSlug(Farm, farmName);
 
@@ -20,6 +20,8 @@ export const createFarm = async (req, res) => {
       slug,
       totalArea,
       location,
+      soilType: soilType || "",
+      irrigationType: irrigationType || irrigation || "",
     });
 
     res.status(201).json(farm);
@@ -83,6 +85,12 @@ export const updateFarm = async (req, res) => {
     farm.farmName = req.body.farmName || farm.farmName;
     farm.totalArea = req.body.totalArea || farm.totalArea;
     farm.location = req.body.location || farm.location;
+    if (req.body.soilType !== undefined) {
+      farm.soilType = req.body.soilType;
+    }
+    if (req.body.irrigationType !== undefined || req.body.irrigation !== undefined) {
+      farm.irrigationType = req.body.irrigationType !== undefined ? req.body.irrigationType : req.body.irrigation;
+    }
 
     if (!farm.slug) {
       farm.slug = await generateUniqueSlug(Farm, farm.farmName, farm._id);

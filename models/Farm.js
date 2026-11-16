@@ -30,6 +30,18 @@ const farmSchema = new mongoose.Schema(
       min: 0.01,
     },
 
+    soilType: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    irrigationType: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     location: {
       village: String,
       district: String,

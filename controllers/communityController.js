@@ -194,7 +194,7 @@ export const getPostById = async (req, res) => {
       post = await CommunityPost.findOneAndUpdate(
         query,
         { $inc: { views: 1 } },
-        { new: true }
+        { returnDocument: 'after' }
       )
         .populate("author", "name role profileImage location")
         .populate("solvedByComment")
@@ -418,7 +418,7 @@ export const markAcceptedSolution = async (req, res) => {
     const comment = await Comment.findByIdAndUpdate(
       commentId,
       { isAcceptedSolution: true },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     post.isSolved = true;

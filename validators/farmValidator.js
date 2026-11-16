@@ -18,6 +18,12 @@ export const createFarmSchema = z.object({
     .positive("Total area must be greater than 0")
     .max(100000, "Invalid farm area"),
 
+  soilType: z.string().trim().max(100, "Soil type name too long").optional(),
+
+  irrigationType: z.string().trim().max(100, "Irrigation type name too long").optional(),
+
+  irrigation: z.string().trim().max(100, "Irrigation type name too long").optional(),
+
   location: z
     .object({
       village: z
@@ -64,6 +70,12 @@ export const updateFarmSchema = z.object({
     .positive("Total area must be greater than 0")
     .max(100000, "Invalid farm area")
     .optional(),
+
+  soilType: z.string().trim().max(100).optional(),
+
+  irrigationType: z.string().trim().max(100).optional(),
+
+  irrigation: z.string().trim().max(100).optional(),
 
   location: z
     .object({
