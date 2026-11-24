@@ -2,7 +2,6 @@ import express from "express";
 import fs from "fs";
 import FormData from "form-data";
 import axios from "axios";
-import sharp from "sharp";
 
 import { upload } from "../middleware/upload.js";
 import { compressImage } from "../utils/compressImage.js";
@@ -35,63 +34,12 @@ const safeDelete = (filePath, retries = 5) => {
 };
 
 /**
- * Fast pixel analyzer using Sharp:
- * Analyzes optical signatures (e.g. white powdery coating vs dark necrotic rot)
- * to prevent the CNN from misclassifying Powdery Mildew as Late Blight.
- */
-const analyzeLeafSymptomPixels = async (imagePath) => {
-  try {
-    const { data, info } = await sharp(imagePath)
-      .resize(200, 200, { fit: "cover" })
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-
-    const totalPixels = info.width * info.height;
-    const channels = info.channels;
-    let whitePowderyCount = 0;
-    let darkNecroticCount = 0;
-
-    for (let i = 0; i < data.length; i += channels) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      // White/gray flour-like powdery coating (Powdery Mildew)
-      if (
-        r > 145 &&
-        g > 150 &&
-        b > 135 &&
-        Math.abs(r - g) < 40 &&
-        Math.abs(g - b) < 40
-      ) {
-        whitePowderyCount++;
-      }
-
-      // Dark water-soaked necrotic lesions (Late Blight)
-      if (r < 75 && g < 70 && b < 65) {
-        darkNecroticCount++;
-      }
-    }
-
-    const powderyWhiteRatio = whitePowderyCount / totalPixels;
-    const necroticDarkRatio = darkNecroticCount / totalPixels;
-
-    return {
-      powderyWhiteRatio,
-      necroticDarkRatio,
-      isPowderyMildew:
-        powderyWhiteRatio >= 0.05 && powderyWhiteRatio > necroticDarkRatio * 0.75,
-    };
-  } catch (err) {
-    console.warn("Pixel symptom analysis warning:", err.message);
-    return { powderyWhiteRatio: 0, necroticDarkRatio: 0, isPowderyMildew: false };
-  }
-};
-
-/**
  * POST /api/ai/detect
- * Uploads crop image, extracts visual features, gets ML prediction,
- * and fetches the authoritative multi-crop disease advisory from MongoDB!
+ *
+ * Sends the image to the Python v2 diagnostic service (/api/v2/diagnose).
+ * The v2 service returns the full advisory, probable diseases, severity,
+ * and recommended products — so the Node layer is primarily a pass-through
+ * with a database fallback if the Python service is offline.
  */
 router.post("/detect", upload.single("image"), async (req, res) => {
   let originalPath;
@@ -105,141 +53,200 @@ router.post("/detect", upload.single("image"), async (req, res) => {
     }
 
     const targetCrop = req.body.crop || req.query.crop || null;
+    const location = req.body.location || req.query.location || null;
+    const district = req.body.district || req.query.district || null;
+    const growthStage = req.body.growth_stage || req.query.growth_stage || null;
 
     originalPath = req.file.path;
     compressedPath = await compressImage(originalPath);
 
-    // 1. Analyze visual symptom signatures (e.g. White Powdery Mildew vs Dark Necrotic Rot)
-    const visualSymptoms = await analyzeLeafSymptomPixels(compressedPath);
-
-    // 2. Prepare form data for Python ML service
+    // Prepare form data for Python v2 diagnostic service
     const formData = new FormData();
     formData.append("image", fs.createReadStream(compressedPath));
-    if (targetCrop) {
-      formData.append("crop", targetCrop);
-    }
+    if (targetCrop) formData.append("crop", targetCrop);
+    if (location) formData.append("location", location);
+    if (district) formData.append("district", district);
+    if (growthStage) formData.append("growth_stage", growthStage);
 
     const pyUrl = process.env.PY_API_URL || "http://127.0.0.1:10000";
 
-    let mlResponse = null;
+    let v2Response = null;
     try {
-      mlResponse = await axios.post(`${pyUrl}/predict`, formData, {
+      // Try the new v2 endpoint first
+      v2Response = await axios.post(`${pyUrl}/api/v2/diagnose`, formData, {
         headers: formData.getHeaders(),
-        timeout: 25000,
+        timeout: 45000,
       });
-    } catch (mlErr) {
-      console.warn("Python ML Service connection warning:", mlErr.message);
-    }
+    } catch (v2Err) {
+      console.warn("Python v2 service not available, trying legacy /predict:", v2Err.message);
 
-    let detectedDisease = "Unknown Issue";
-    let confidence = 85.0;
-    let topPredictions = [];
+      // Fallback: try legacy /predict endpoint
+      const legacyForm = new FormData();
+      legacyForm.append("image", fs.createReadStream(compressedPath));
+      if (targetCrop) legacyForm.append("crop", targetCrop);
 
-    if (mlResponse && mlResponse.data && mlResponse.data.success) {
-      detectedDisease = mlResponse.data.disease;
-      confidence = mlResponse.data.confidence;
-      topPredictions = mlResponse.data.top_predictions || [];
-    } else {
-      // Fallback heuristics if Python service is offline
-      if (visualSymptoms.isPowderyMildew) {
-        detectedDisease = "Powdery_Mildew";
-        confidence = 92.5;
-        topPredictions = [{ disease: "Powdery_Mildew", confidence: 92.5 }];
-      } else {
-        detectedDisease = "Early_blight";
-        confidence = 78.0;
-        topPredictions = [{ disease: "Early_blight", confidence: 78.0 }];
-      }
-    }
-
-    // 3. Visual Accuracy Correction:
-    // If the image exhibits distinct white powdery coating, correct misclassification
-    if (
-      visualSymptoms.isPowderyMildew &&
-      (detectedDisease.toLowerCase().includes("late_blight") ||
-        detectedDisease.toLowerCase().includes("healthy") ||
-        confidence < 85)
-    ) {
-      console.log(
-        "Visual Symptom Correction applied: Detected white powdery coating (Powdery Mildew) instead of Late Blight!"
-      );
-      detectedDisease = "Powdery_Mildew";
-      confidence = Math.max(confidence, 91.5);
-      topPredictions = [
-        { disease: "Powdery_Mildew", confidence: 91.5 },
-        ...topPredictions.filter((p) => !p.disease.includes("Powdery_Mildew")),
-      ];
-    }
-
-    // 4. Query our MongoDB database for the universal disease advisory
-    const cleanDisease = formatDisease(detectedDisease);
-    const dbAdvisory =
-      (await findAdvisoryForDisease(detectedDisease, targetCrop)) ||
-      (await findAdvisoryForDisease(cleanDisease, targetCrop));
-
-    const solutionText = formatAdvisoryToSolutionText(dbAdvisory);
-
-    // 5. Enrich all probable candidate diseases with symptoms and verified advisory
-    const candidatePromises = topPredictions.map(async (tp) => {
-      const cleanName = formatDisease(tp.disease);
-      const adv =
-        (await findAdvisoryForDisease(tp.disease, targetCrop)) ||
-        (await findAdvisoryForDisease(cleanName, targetCrop));
-      return {
-        disease: tp.disease,
-        displayName: adv?.name || cleanName,
-        confidence: tp.confidence,
-        category: adv?.category || "Fungal Disease",
-        severity: adv?.severity || "medium",
-        scientificName: adv?.scientificName || "",
-        symptoms:
-          adv?.symptoms && adv.symptoms.length > 0
-            ? adv.symptoms
-            : [
-                "Irregular spots or discoloration on leaf surface",
-                "Signs of plant stress or foliage decay",
-              ],
-        advisory: adv || null,
-        solution: adv ? formatAdvisoryToSolutionText(adv) : "",
-      };
-    });
-
-    let probableDiseases = await Promise.all(candidatePromises);
-
-    // If fewer than 2 candidates returned, add alternative common disease for user comparison
-    if (probableDiseases.length < 2) {
-      const altKey =
-        detectedDisease.toLowerCase().includes("powdery")
-          ? "late_blight"
-          : "powdery_mildew";
-      const altAdv = await findAdvisoryForDisease(altKey, targetCrop);
-      if (altAdv) {
-        probableDiseases.push({
-          disease: altAdv.diseaseKey,
-          displayName: altAdv.name,
-          confidence: Math.max(15, Math.round(100 - confidence)),
-          category: altAdv.category,
-          severity: altAdv.severity,
-          scientificName: altAdv.scientificName,
-          symptoms: altAdv.symptoms,
-          advisory: altAdv,
-          solution: formatAdvisoryToSolutionText(altAdv),
+      try {
+        const legacyRes = await axios.post(`${pyUrl}/predict`, legacyForm, {
+          headers: legacyForm.getHeaders(),
+          timeout: 25000,
         });
+
+        if (legacyRes.data && legacyRes.data.success) {
+          // Convert legacy response to v2-like shape using MongoDB advisory
+          const rawDisease = legacyRes.data.disease;
+          const cleanDisease = formatDisease(rawDisease);
+          const dbAdvisory =
+            (await findAdvisoryForDisease(rawDisease, targetCrop)) ||
+            (await findAdvisoryForDisease(cleanDisease, targetCrop));
+          const solutionText = formatAdvisoryToSolutionText(dbAdvisory);
+
+          // Enrich candidates
+          const topPreds = legacyRes.data.top_predictions || [];
+          const candidatePromises = topPreds.map(async (tp) => {
+            const cleanName = formatDisease(tp.disease);
+            const adv =
+              (await findAdvisoryForDisease(tp.disease, targetCrop)) ||
+              (await findAdvisoryForDisease(cleanName, targetCrop));
+            return {
+              disease: tp.disease,
+              displayName: adv?.name || cleanName,
+              confidence: tp.confidence,
+              category: adv?.category || "Fungal Disease",
+              severity: adv?.severity || "medium",
+              scientificName: adv?.scientificName || "",
+              symptoms:
+                adv?.symptoms && adv.symptoms.length > 0
+                  ? adv.symptoms
+                  : [
+                      "Irregular spots or discoloration on leaf surface",
+                      "Signs of plant stress or foliage decay",
+                    ],
+              advisory: adv || null,
+              solution: adv ? formatAdvisoryToSolutionText(adv) : "",
+            };
+          });
+
+          const probableDiseases = await Promise.all(candidatePromises);
+
+          return res.json({
+            disease: dbAdvisory?.name || cleanDisease,
+            rawDisease,
+            confidence: legacyRes.data.confidence,
+            targetCrop,
+            probable_diseases: probableDiseases,
+            top_predictions: probableDiseases,
+            solution: solutionText,
+            advisory: dbAdvisory || null,
+            source: "legacy_cnn_with_database",
+          });
+        }
+      } catch (legacyErr) {
+        console.warn("Legacy Python service also unavailable:", legacyErr.message);
       }
     }
 
-    return res.json({
-      disease: dbAdvisory?.name || cleanDisease,
-      rawDisease: detectedDisease,
-      confidence,
-      targetCrop,
-      probable_diseases: probableDiseases,
-      top_predictions: probableDiseases,
-      solution: solutionText,
-      advisory: dbAdvisory || null,
-      visualSymptoms,
-      source: "database", // Guaranteed database-backed advice
+    // If v2 responded successfully, pass through its full response
+    if (v2Response && v2Response.data) {
+      const v2Data = v2Response.data;
+
+      // If the v2 response's advisory is minimal (untrained model),
+      // try to enrich from our MongoDB database
+      let dbAdvisory = null;
+      if (v2Data.disease && v2Data.disease !== "Unknown Issue") {
+        const cleanDisease = formatDisease(v2Data.rawDisease || v2Data.disease);
+        dbAdvisory =
+          (await findAdvisoryForDisease(v2Data.rawDisease || v2Data.disease, targetCrop)) ||
+          (await findAdvisoryForDisease(cleanDisease, targetCrop));
+      }
+
+      // Merge: prefer v2 data but fill gaps from MongoDB if available
+      const mergedAdvisory = v2Data.advisory || {};
+      if (dbAdvisory) {
+        if (!mergedAdvisory.cause || !mergedAdvisory.cause.trim()) {
+          mergedAdvisory.cause = dbAdvisory.cause || "";
+        }
+        if (!mergedAdvisory.chemicalTreatment || !mergedAdvisory.chemicalTreatment.trim()) {
+          mergedAdvisory.chemicalTreatment = dbAdvisory.chemicalTreatment || "";
+        }
+        if (!mergedAdvisory.organicSolution || !mergedAdvisory.organicSolution.trim()) {
+          mergedAdvisory.organicSolution = dbAdvisory.organicSolution || "";
+        }
+        if (!mergedAdvisory.prevention || !mergedAdvisory.prevention.trim()) {
+          mergedAdvisory.prevention = dbAdvisory.prevention || "";
+        }
+        if (!mergedAdvisory.symptoms || mergedAdvisory.symptoms.length === 0) {
+          mergedAdvisory.symptoms = dbAdvisory.symptoms || [];
+        }
+        if (!mergedAdvisory.recommendedProducts || mergedAdvisory.recommendedProducts.length === 0) {
+          mergedAdvisory.recommendedProducts = dbAdvisory.recommendedProducts || [];
+        }
+      }
+
+      // Also enrich each probable disease with MongoDB data where needed
+      let probableDiseases = v2Data.probable_diseases || v2Data.top_predictions || [];
+      if (probableDiseases.length > 0) {
+        const enrichedPromises = probableDiseases.map(async (pd) => {
+          if (pd.advisory && pd.advisory.cause && pd.advisory.cause.trim()) {
+            return pd; // Already has full data from v2
+          }
+          // Try to fill from MongoDB
+          const cleanName = formatDisease(pd.disease || pd.displayName);
+          const dbAdv =
+            (await findAdvisoryForDisease(pd.disease, targetCrop)) ||
+            (await findAdvisoryForDisease(cleanName, targetCrop));
+          if (dbAdv) {
+            return {
+              ...pd,
+              displayName: pd.displayName || dbAdv.name || cleanName,
+              category: pd.category || dbAdv.category || "",
+              severity: pd.severity || dbAdv.severity || "medium",
+              scientificName: pd.scientificName || dbAdv.scientificName || "",
+              symptoms:
+                pd.symptoms && pd.symptoms.length > 0 && pd.symptoms[0] !== "Irregular spots or discoloration on leaf surface"
+                  ? pd.symptoms
+                  : dbAdv.symptoms || pd.symptoms,
+              advisory: {
+                ...(pd.advisory || {}),
+                name: dbAdv.name || pd.advisory?.name || "",
+                cause: pd.advisory?.cause?.trim() ? pd.advisory.cause : dbAdv.cause || "",
+                chemicalTreatment: pd.advisory?.chemicalTreatment?.trim() ? pd.advisory.chemicalTreatment : dbAdv.chemicalTreatment || "",
+                organicSolution: pd.advisory?.organicSolution?.trim() ? pd.advisory.organicSolution : dbAdv.organicSolution || "",
+                prevention: pd.advisory?.prevention?.trim() ? pd.advisory.prevention : dbAdv.prevention || "",
+                recommendedProducts: pd.advisory?.recommendedProducts?.length > 0
+                  ? pd.advisory.recommendedProducts
+                  : dbAdv.recommendedProducts || [],
+              },
+              solution: pd.solution?.trim() ? pd.solution : formatAdvisoryToSolutionText(dbAdv),
+            };
+          }
+          return pd;
+        });
+
+        probableDiseases = await Promise.all(enrichedPromises);
+      }
+
+      return res.json({
+        disease: dbAdvisory?.name || v2Data.disease,
+        rawDisease: v2Data.rawDisease || v2Data.disease,
+        confidence: v2Data.confidence,
+        targetCrop,
+        probable_diseases: probableDiseases,
+        top_predictions: probableDiseases,
+        solution: mergedAdvisory.cause
+          ? formatAdvisoryToSolutionText(mergedAdvisory)
+          : v2Data.solution || "",
+        advisory: mergedAdvisory,
+        source: v2Data.source || "ai_pipeline_v2",
+        v2: v2Data.v2 || null,
+      });
+    }
+
+    // If neither service worked, return an informative error
+    return res.status(503).json({
+      error: "AI diagnostic service is currently unavailable",
+      details: "Neither the v2 pipeline nor the legacy CNN could be reached. Please ensure the Python service is running.",
     });
+
   } catch (err) {
     console.error("DETECT ERROR:", err.message);
 
