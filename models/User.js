@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    expoPushToken: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
     authProvider: {
       type: String,
       enum: ["local", "google"],
@@ -52,8 +58,14 @@ const userSchema = new mongoose.Schema(
 
     language: {
       type: String,
-      enum: ["gujarati", "hindi", "english"],
+      enum: ["gujarati", "hindi", "english", "marathi"],
       default: "english",
+    },
+
+    notifications: {
+      weatherAlerts: { type: Boolean, default: true },
+      diseaseAlerts: { type: Boolean, default: true },
+      mandiAlerts: { type: Boolean, default: true },
     },
 
     location: {

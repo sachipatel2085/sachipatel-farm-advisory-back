@@ -1,6 +1,8 @@
 import User from "../models/User.js";
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
+import fs from "fs";
+import path from "path";
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -98,10 +100,16 @@ export const googleLogin = async (req, res) => {
       });
     }
 
-    // Verify Google ID token
+    const allowedAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID,
+      process.env.GOOGLE_IOS_CLIENT_ID,
+    ].filter(Boolean);
+
+    // Verify Google ID token (supports Web, Android, and iOS OAuth client IDs)
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: allowedAudiences,
     });
 
     const payload = ticket.getPayload();
@@ -125,7 +133,9 @@ export const googleLogin = async (req, res) => {
     if (user) {
       user.googleId = googleId;
       user.email = email;
-      user.profileImage = picture;
+      if (!user.profileImage) {
+        user.profileImage = picture;
+      }
       user.authProvider = "google";
 
       await user.save();
@@ -172,14 +182,214 @@ export const googleLogin = async (req, res) => {
   }
 };
 
+const formatSafeUser = (userDoc) => {
+  const obj = userDoc.toObject ? userDoc.toObject() : { ...userDoc };
+  const hasPassword = Boolean(obj.password);
+  delete obj.password;
+  return {
+    ...obj,
+    hasPassword,
+  };
+};
+
 export const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
+    const user = await User.findById(req.user._id).select("+password");
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    res.json(user);
+    res.json(formatSafeUser(user));
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, email, phone, language, location, notifications } = req.body;
+
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (name !== undefined) {
+      user.name = name.trim();
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = email ? email.trim().toLowerCase() : null;
+      if (normalizedEmail && normalizedEmail !== user.email) {
+        const existingEmail = await User.findOne({
+          email: normalizedEmail,
+          _id: { $ne: user._id },
+        });
+        if (existingEmail) {
+          return res.status(409).json({
+            message: "This email address is already linked to another account",
+          });
+        }
+        user.email = normalizedEmail;
+      } else if (!normalizedEmail && user.authProvider === "local") {
+        user.email = undefined;
+      }
+    }
+
+    if (phone !== undefined) {
+      const normalizedPhone = phone ? phone.trim() : null;
+      if (normalizedPhone && normalizedPhone !== user.phone) {
+        const existingPhone = await User.findOne({
+          phone: normalizedPhone,
+          _id: { $ne: user._id },
+        });
+        if (existingPhone) {
+          return res.status(409).json({
+            message: "This phone number is already registered with another account",
+          });
+        }
+        user.phone = normalizedPhone;
+      } else if (!normalizedPhone && user.authProvider === "google") {
+        user.phone = undefined;
+      }
+    }
+
+    if (language) {
+      user.language = language;
+    }
+
+    if (location && typeof location === "object") {
+      user.location = {
+        village: location.village !== undefined ? location.village.trim() : user.location?.village || "",
+        district: location.district !== undefined ? location.district.trim() : user.location?.district || "",
+        state: location.state !== undefined ? location.state.trim() : user.location?.state || "",
+      };
+    }
+
+    if (notifications && typeof notifications === "object") {
+      user.notifications = {
+        weatherAlerts:
+          notifications.weatherAlerts !== undefined
+            ? Boolean(notifications.weatherAlerts)
+            : user.notifications?.weatherAlerts ?? true,
+        diseaseAlerts:
+          notifications.diseaseAlerts !== undefined
+            ? Boolean(notifications.diseaseAlerts)
+            : user.notifications?.diseaseAlerts ?? true,
+        mandiAlerts:
+          notifications.mandiAlerts !== undefined
+            ? Boolean(notifications.mandiAlerts)
+            : user.notifications?.mandiAlerts ?? true,
+      };
+    }
+
+    await user.save();
+
+    res.json({
+      message: "Profile updated successfully",
+      user: formatSafeUser(user),
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0] || "field";
+      return res.status(409).json({
+        message: `That ${field} is already used by another account`,
+      });
+    }
+    console.error("Update profile error:", error);
+    res.status(500).json({ message: "Failed to update profile" });
+  }
+};
+
+export const uploadProfileAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Please select an image file to upload" });
+    }
+
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Delete old local uploaded avatar if present
+    if (user.profileImage && user.profileImage.startsWith("/uploads/")) {
+      const oldPath = path.resolve(`.${user.profileImage}`);
+      fs.unlink(oldPath, () => {});
+    }
+
+    const normalizedPath = `/${req.file.path.replace(/\\/g, "/")}`;
+    user.profileImage = normalizedPath;
+    await user.save();
+
+    res.json({
+      message: "Profile photo updated successfully",
+      profileImage: user.profileImage,
+      user: formatSafeUser(user),
+    });
+  } catch (error) {
+    console.error("Avatar upload error:", error);
+    res.status(500).json({ message: "Failed to upload profile photo" });
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.password) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          message: "Current password is required to set a new password",
+        });
+      }
+      const isMatch = await user.matchPassword(currentPassword);
+      if (!isMatch) {
+        // Return 400 (not 401) so frontend axios interceptor does not clear the active session
+        return res.status(400).json({
+          message: "Current password is incorrect",
+        });
+      }
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      message: user.authProvider === "google" && !currentPassword
+        ? "Password set successfully. You can now also sign in with your password."
+        : "Password updated successfully",
+      hasPassword: true,
+    });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ message: "Failed to update password" });
+  }
+};
+
+export const updatePushToken = async (req, res) => {
+  try {
+    const { expoPushToken } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.expoPushToken = typeof expoPushToken === "string" && expoPushToken.trim()
+      ? expoPushToken.trim()
+      : null;
+    await user.save();
+
+    res.json({
+      message: "Push notification token updated",
+      expoPushToken: user.expoPushToken,
+    });
+  } catch (error) {
+    console.error("Push token update error:", error);
+    res.status(500).json({ message: "Failed to update push token" });
   }
 };

@@ -34,14 +34,23 @@ import { apiLimiter } from "./middleware/rateLimitMiddleware.js";
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:8081",
+  "https://sachipatel-farm-advisory-back.onrender.com",
+  "https://sachipatel-farm-advisory.vercel.app",
+  "https://sachipatel-farm-advisory-299fc1fzr-sachipatel-s-projects.vercel.app",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://sachipatel-farm-advisory-back.onrender.com",
-      "https://sachipatel-farm-advisory.vercel.app",
-      "https://sachipatel-farm-advisory-299fc1fzr-sachipatel-s-projects.vercel.app",
-    ],
+    origin: (origin, callback) => {
+      // Allow native mobile clients (no Origin header) and allowlisted web origins
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   }),
 );
