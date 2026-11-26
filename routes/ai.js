@@ -13,6 +13,15 @@ import {
 
 const router = express.Router();
 
+const filterTopCandidates = (candidates = []) => {
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+  const sorted = [...candidates].sort(
+    (a, b) => Number(b?.confidence || 0) - Number(a?.confidence || 0)
+  );
+  const aboveThreshold = sorted.filter((c) => Number(c?.confidence || 0) > 50);
+  return aboveThreshold.length > 0 ? aboveThreshold.slice(0, 2) : sorted.slice(0, 2);
+};
+
 const safeDelete = (filePath, retries = 5) => {
   if (!filePath || !fs.existsSync(filePath)) return;
 
@@ -126,7 +135,7 @@ router.post("/detect", upload.single("image"), async (req, res) => {
             };
           });
 
-          const probableDiseases = await Promise.all(candidatePromises);
+          const probableDiseases = filterTopCandidates(await Promise.all(candidatePromises));
 
           return res.json({
             disease: dbAdvisory?.name || cleanDisease,
@@ -224,6 +233,8 @@ router.post("/detect", upload.single("image"), async (req, res) => {
 
         probableDiseases = await Promise.all(enrichedPromises);
       }
+
+      probableDiseases = filterTopCandidates(probableDiseases);
 
       return res.json({
         disease: dbAdvisory?.name || v2Data.disease,
